@@ -1,7 +1,7 @@
 # Relatorio de evidencias - Trabalho Pratico Integrador 01-06
 
 Nome: Pedro Raposo   Data: 24-11-2026
-URL do repositorio Git: ____________________________
+URL do repositorio Git: https://github.com/PedroRaposo02/tp-devops-integrador
 
 ## E01 - Ambiente (1 valor)
 Comandos e versoes observadas:
@@ -175,6 +175,46 @@ $ git check-ignore -v .venv/x .env __pycache__/x.pyc .pytest_cache/x teste.log
 .gitignore:3:.pytest_cache/  .pytest_cache/x
 .gitignore:6:*.log           teste.log
 ```
+
+Branch de correcao: `fix/health-info` (acrescenta `"team": "support"` ao `/health` e a assercao em `test_health`).
+
+```
+$ git commit -m "feat: ambiente integrador funcional"
+[main f6bbdcb] feat: ambiente integrador funcional
+$ git switch -c fix/health-info
+$ .venv/bin/python -m pytest -q
+2 passed, 1 warning in 1.85s
+$ git commit -m "fix: acrescentar identificacao no health"
+[fix/health-info db29972] fix: acrescentar identificacao no health
+$ git switch main
+$ git merge fix/health-info
+Updating f6bbdcb..db29972
+Fast-forward
+$ git tag -a v1.0.0 -m "Release integrador 1.0.0"
+$ git log --oneline --graph --decorate -6
+* db29972 (HEAD -> main, tag: v1.0.0, fix/health-info) fix: acrescentar identificacao no health
+* f6bbdcb feat: ambiente integrador funcional
+* 8b549f7 (origin/main) Exercicio 03
+* 08aae77 Exercicio 03
+* b2b4c5e Exercicio 02
+* 14a9cab Exercicio 01
+$ git push -u origin main
+   8b549f7..db29972  main -> main
+$ git push origin v1.0.0
+ * [new tag]         v1.0.0 -> v1.0.0
+```
+
+| Item | Valor |
+|---|---|
+| Commit base funcional | `f6bbdcb` feat: ambiente integrador funcional |
+| Commit da correcao | `db29972` fix: acrescentar identificacao no health |
+| Merge | `fix/health-info` -> `main` (fast-forward, `main` aponta para `db29972`) |
+| Tag anotada | `v1.0.0` -> `db29972` ("Release integrador 1.0.0") |
+| Remoto | https://github.com/PedroRaposo02/tp-devops-integrador |
+
+Conclusao: a correcao foi desenvolvida numa branch propria, testada (2 testes a passar, incluindo a nova assercao
+`team == "support"`) e integrada em `main`. Como `main` nao tinha commits novos desde a criacao da branch, o Git
+fez um merge fast-forward. A release fica identificada pela tag anotada `v1.0.0`, publicada no remoto com o historico.
 
 ## E06 - Jenkins SUCCESS (4 valores)
 URL/numero do build, etapas e identificador da imagem construida:
