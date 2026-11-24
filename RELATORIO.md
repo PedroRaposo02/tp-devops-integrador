@@ -104,6 +104,23 @@ quando este e recriado.**
 ## E04 - Incidente Docker (3 valores)
 Sintoma, comandos de investigacao, causa-raiz, alteracao realizada, prova da recuperacao e contador preservado:
 
+Estado antes do incidente: `GET /visits -> {"visits":1}`. Incidente aplicado com
+`docker compose -f compose.yaml -f incidente.yaml up -d --force-recreate`.
+
+**Mini-runbook**
+
+| Campo | Registo |
+|---|---|
+| **1. Sintoma** | `docker compose ps` mostra o container `api` como `Up ... (unhealthy)`. O pedido externo `curl http://<IP_HOST>:8180/health` falha com `curl: (7) Couldn't connect to server`. |
+| **2. Diagnostico** | `docker compose -f compose.yaml -f incidente.yaml logs --tail 30 api`: `Uvicorn running on http://0.0.0.0:8001`.<br>`docker compose -f compose.yaml -f incidente.yaml config`: `command: ... --port "8001"`, mas `ports: target: 8000` e o healthcheck chama `127.0.0.1:8000/health`.<br>`docker port natixis-integrador-api-1`: `8000/tcp -> 0.0.0.0:8180`.<br>`docker inspect -f '{{json .State.Health}}'`: `FailingStreak: 5`, `[Errno 111] Connection refused`.<br>Sockets em LISTEN no container (`/proc/net/tcp`): `8001` (a porta 34477 e o DNS interno do Docker).<br>`urlopen('http://127.0.0.1:8001/health')` dentro do container: `200`; na 8000: `Connection refused`. |
+| **3. Causa-raiz** | O overlay `incidente.yaml` substitui o `command` do servico `api` e arranca o uvicorn com `--port 8001`. O mapeamento `8180:8000` e o healthcheck continuam a apontar para a porta 8000, onde nenhum processo escuta, o que da `Connection refused` interno (unhealthy) e externo. A API esta funcional, mas na porta errada. |
+| **4. Correcao** | Regressar a configuracao base (sem o overlay) e recriar apenas o servico afetado, mantendo o volume: `docker compose up -d --force-recreate api`. O `incidente.yaml` fica no repositorio sem alteracoes, como evidencia. |
+| **5. Validacao** | `docker compose ps`: `Up 7 seconds (healthy)`; `Cmd ... "--port","8000"`.<br>`curl http://<IP_HOST>:8180/health`: `{"status":"ok",...}  HTTP 200`.<br>`curl http://<IP_HOST>:8180/visits`: `{"visits":1}`, o **mesmo valor de antes do incidente**. O volume `natixis-integrador_app-data` continua presente. |
+
+Conclusao: o incidente foi uma divergencia entre a porta de escuta do processo (8001) e a porta esperada
+pelo mapeamento e pelo healthcheck (8000). Repor a configuracao base e recriar so o `api` resolveu a falha
+sem perda de dados, porque o volume nomeado nunca foi removido.
+
 ## E05 - Git (3 valores)
 Branch, hashes de commits, merge e tag v1.0.0:
 
