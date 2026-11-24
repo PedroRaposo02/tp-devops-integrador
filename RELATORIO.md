@@ -104,22 +104,63 @@ quando este e recriado.**
 ## E04 - Incidente Docker (3 valores)
 Sintoma, comandos de investigacao, causa-raiz, alteracao realizada, prova da recuperacao e contador preservado:
 
-Estado antes do incidente: `GET /visits -> {"visits":1}`. Incidente aplicado com
-`docker compose -f compose.yaml -f incidente.yaml up -d --force-recreate`.
+Contador antes do incidente: `curl http://<IP_HOST>:8180/visits` -> `{"visits":1}`
 
-**Mini-runbook**
+**1. Sintoma**
+```
+$ docker compose -f compose.yaml -f incidente.yaml up -d --force-recreate
+ Container natixis-integrador-api-1  Recreated
+ Container natixis-integrador-api-1  Started
 
-| Campo | Registo |
-|---|---|
-| **1. Sintoma** | `docker compose ps` mostra o container `api` como `Up ... (unhealthy)`. O pedido externo `curl http://<IP_HOST>:8180/health` falha com `curl: (7) Couldn't connect to server`. |
-| **2. Diagnostico** | `docker compose -f compose.yaml -f incidente.yaml logs --tail 30 api`: `Uvicorn running on http://0.0.0.0:8001`.<br>`docker compose -f compose.yaml -f incidente.yaml config`: `command: ... --port "8001"`, mas `ports: target: 8000` e o healthcheck chama `127.0.0.1:8000/health`.<br>`docker port natixis-integrador-api-1`: `8000/tcp -> 0.0.0.0:8180`.<br>`docker inspect -f '{{json .State.Health}}'`: `FailingStreak: 5`, `[Errno 111] Connection refused`.<br>Sockets em LISTEN no container (`/proc/net/tcp`): `8001` (a porta 34477 e o DNS interno do Docker).<br>`urlopen('http://127.0.0.1:8001/health')` dentro do container: `200`; na 8000: `Connection refused`. |
-| **3. Causa-raiz** | O overlay `incidente.yaml` substitui o `command` do servico `api` e arranca o uvicorn com `--port 8001`. O mapeamento `8180:8000` e o healthcheck continuam a apontar para a porta 8000, onde nenhum processo escuta, o que da `Connection refused` interno (unhealthy) e externo. A API esta funcional, mas na porta errada. |
-| **4. Correcao** | Regressar a configuracao base (sem o overlay) e recriar apenas o servico afetado, mantendo o volume: `docker compose up -d --force-recreate api`. O `incidente.yaml` fica no repositorio sem alteracoes, como evidencia. |
-| **5. Validacao** | `docker compose ps`: `Up 7 seconds (healthy)`; `Cmd ... "--port","8000"`.<br>`curl http://<IP_HOST>:8180/health`: `{"status":"ok",...}  HTTP 200`.<br>`curl http://<IP_HOST>:8180/visits`: `{"visits":1}`, o **mesmo valor de antes do incidente**. O volume `natixis-integrador_app-data` continua presente. |
+$ docker compose -f compose.yaml -f incidente.yaml ps
+NAME                       IMAGE                   STATUS                      PORTS
+natixis-integrador-api-1   natixis-support:local   Up 35 seconds (unhealthy)   0.0.0.0:8180->8000/tcp
+```
+O container esta a correr mas fica `unhealthy`: o healthcheck nao consegue obter resposta da API.
 
-Conclusao: o incidente foi uma divergencia entre a porta de escuta do processo (8001) e a porta esperada
-pelo mapeamento e pelo healthcheck (8000). Repor a configuracao base e recriar so o `api` resolveu a falha
-sem perda de dados, porque o volume nomeado nunca foi removido.
+**2. Comandos de diagnostico**
+```
+$ docker compose -f compose.yaml -f incidente.yaml logs --tail 30 api
+api-1  | INFO:     Application startup complete.
+api-1  | INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+
+$ docker compose -f compose.yaml -f incidente.yaml config      (excerto do servico api)
+    command: [python, -m, uvicorn, app:app, --host, 0.0.0.0, --port, "8001"]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+    ports:
+      - target: 8000
+        published: "8180"
+```
+
+**3. Causa**
+O `incidente.yaml` substitui o `command` do servico `api` e o uvicorn passa a escutar na porta **8001** (confirmado
+nos logs). O mapeamento de portas (`8180 -> 8000`) e o healthcheck (`127.0.0.1:8000/health`) continuam a usar a porta
+**8000**, onde nao ha nenhum processo a escutar. Por isso o healthcheck falha (`unhealthy`) e o acesso pela 8180 nao chega a API.
+
+**4. Correcao**
+Regressar a configuracao base (sem o overlay `incidente.yaml`, que fica no repositorio sem alteracoes) e recriar o
+servico, sem remover o volume:
+```
+$ docker compose up -d --force-recreate
+ Container natixis-integrador-api-1  Recreated
+ Container natixis-integrador-api-1  Started
+```
+
+**5. Validacao**
+```
+$ docker compose ps
+NAME                       IMAGE                   STATUS                   PORTS
+natixis-integrador-api-1   natixis-support:local   Up 7 seconds (healthy)   0.0.0.0:8180->8000/tcp
+
+$ curl http://<IP_HOST>:8180/health
+{"status":"ok","service":"support-api-integrador","version":"1.0"}
+
+$ curl http://<IP_HOST>:8180/visits
+{"visits":1}
+```
+O servico voltou a `healthy`, o `/health` responde com `status="ok"` e o contador manteve o valor de antes do
+incidente (`1`), porque o volume nomeado `app-data` nunca foi removido.
 
 ## E05 - Git (3 valores)
 Branch, hashes de commits, merge e tag v1.0.0:
