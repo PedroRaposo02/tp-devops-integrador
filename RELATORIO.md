@@ -219,6 +219,66 @@ fez um merge fast-forward. A release fica identificada pela tag anotada `v1.0.0`
 ## E06 - Jenkins SUCCESS (4 valores)
 URL/numero do build, etapas e identificador da imagem construida:
 
+**Ambiente Jenkins** (pasta `jenkins/`, contexto `natixis`, compose separado do da aplicacao para que os
+`docker compose up --force-recreate` dos E03/E04 nao recriem o CI):
+
+| Ficheiro | Funcao |
+|---|---|
+| `jenkins/compose.yaml` | Servico `jenkins` (imagem oficial `jenkins/jenkins:lts-jdk21`, porta 8190 -> 8080, volume `jenkins_home` com jobs e historico) e servico `ci-agent` (agente inbound por WebSocket, socket do daemon montado e grupo 2375 = dono do socket). |
+| `jenkins/Dockerfile.agent` | `jenkins/inbound-agent:jdk21` + Git, Python 3/venv e Docker CLI, exigidos pelo Jenkinsfile. |
+| `jenkins/.env` (fora do Git) | `JENKINS_AGENT_SECRET` (segredo do no) e password do admin. |
+
+Configuracao inicial (passos do assistente, feitos pela API/CLI do Jenkins): desbloqueio com a password inicial,
+instalacao dos plugins `workflow-aggregator` (Pipeline), `git` e `pipeline-stage-view`, criacao do admin, no
+permanente **`ci-python-docker`** (label `ci-python-docker`, `/home/jenkins/agent`, ligacao inbound por WebSocket)
+e job **`tp-devops-integrador`** do tipo **Pipeline from SCM** (Git
+`https://github.com/PedroRaposo02/tp-devops-integrador.git`, branch `*/main`, script `Jenkinsfile`).
+
+```
+$ docker exec natixis-integrador-ci-ci-agent-1 sh -c 'id; python3 --version; docker version ...'
+uid=1000(jenkins) gid=1000(jenkins) groups=1000(jenkins),2375
+Python 3.13.5
+docker CLI 26.1.5+dfsg1 -> daemon 29.10.0
+```
+
+**Jenkinsfile**: pipeline declarativa no agente `ci-python-docker`, timeout de 15 min, sem builds concorrentes:
+- `Checkout`: `checkout scm` clona o repositorio definido no job e faz `git checkout -f` do commit exato da
+  `main` (rastreabilidade build <-> commit).
+- `Tests`: `python3 -m venv .venv`, `pip install -r requirements.txt -r requirements-dev.txt`, `pytest -q`.
+- `Docker Build`: `docker build -t "natixis-support:ci-${BUILD_NUMBER}" .` e
+  `docker image inspect ... --format '{{.Id}}'`.
+
+| Item | Valor |
+|---|---|
+| Build | **#2**, `http://<IP_HOST>:8190/job/tp-devops-integrador/2/` |
+| Resultado | **SUCCESS** (20s) |
+| Etapas | Checkout SUCCESS, Tests SUCCESS, Docker Build SUCCESS |
+| Commit | `5815e3e` |
+| Imagem | `natixis-support:ci-2` |
+| ID da imagem | `sha256:c7a7192ce697acea6eecfcd2eead12c4d1ddf38665d425dbb89081f3dd70434a` |
+
+Excerto do Console Output:
+```
+Started tp-devops-integrador #2
+Obtained Jenkinsfile from git https://github.com/PedroRaposo02/tp-devops-integrador.git
+Running on ci-python-docker in /home/jenkins/agent/workspace/tp-devops-integrador
+Checking out Revision 5815e3ecbe27922537a44ae590ffa9b1b59cbb13 (refs/remotes/origin/main)
++ python3 -m venv .venv
++ .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
++ .venv/bin/python -m pytest -q
+2 passed, 1 warning in 0.38s
++ docker build -t natixis-support:ci-2 .
+#11 naming to docker.io/library/natixis-support:ci-2 0.1s done
++ docker image inspect natixis-support:ci-2 --format {{.Id}}
+sha256:c7a7192ce697acea6eecfcd2eead12c4d1ddf38665d425dbb89081f3dd70434a
+Finished: SUCCESS
+```
+
+Conclusao: o Jenkins obteve o `Jenkinsfile` e o codigo a partir do Git (commit `5815e3e`), executou os testes num
+ambiente virtual isolado no agente `ci-python-docker` e construiu a imagem com uma tag unica por execucao
+(`ci-${BUILD_NUMBER}`), confirmada com `docker image inspect`. As tres etapas terminaram em SUCCESS.
+(O build #1 foi uma execucao de validacao do ambiente sobre uma revisao anterior do historico.)
+
 ## E07 - Jenkins FAILURE e recuperacao (2 valores)
 Build FAILURE, etapa que falhou e excerto relevante do log; build SUCCESS apos correcao:
 
