@@ -1,0 +1,31 @@
+name: natixis-integrador-ci
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk21
+    restart: unless-stopped
+    ports:
+      - "8190:8080"   # DinD natixis-lab expoe 8100-8199 ao host
+    volumes:
+      - jenkins_home:/var/jenkins_home
+
+  ci-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    restart: unless-stopped
+    environment:
+      JENKINS_URL: http://jenkins:8080/
+      JENKINS_AGENT_NAME: ci-python-docker
+      JENKINS_SECRET: ${JENKINS_AGENT_SECRET:-}   # definido em .env (fora do Git)
+      JENKINS_WEB_SOCKET: "true"
+      JENKINS_AGENT_WORKDIR: /home/jenkins/agent
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # acesso ao daemon natixis
+    group_add:
+      - "2375"                                      # grupo dono do socket
+    depends_on:
+      - jenkins
+
+volumes:
+  jenkins_home:

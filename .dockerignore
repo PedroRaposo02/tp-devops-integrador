@@ -15,3 +15,5 @@ __pycache__
 # Evidencias e documentacao que nao pertencem a imagem
 evidencias/
 ficha.pdf
+# Infraestrutura de CI (nao pertence a imagem da API)
+jenkins/

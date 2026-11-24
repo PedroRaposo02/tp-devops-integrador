@@ -1,0 +1,8 @@
+FROM jenkins/inbound-agent:jdk21
+
+USER root
+# Agente Linux com Python 3/venv, Git e Docker CLI (usa o daemon do contexto natixis via socket)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git python3 python3-venv docker-cli docker-buildx \
+ && rm -rf /var/lib/apt/lists/*
+USER jenkins
