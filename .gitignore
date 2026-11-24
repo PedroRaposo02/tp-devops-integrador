@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+*.log
+*.pdf
+# Enunciado (nao faz parte da entrega)
+ficha.pdf
