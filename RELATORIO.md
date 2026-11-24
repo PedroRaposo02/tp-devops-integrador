@@ -46,9 +46,11 @@ sem `127.0.0.1:` porque o trafego chega pela interface de rede do DinD, nao pelo
 
 ```
 $ docker build -t natixis-support:1.0 .
- => naming to docker.io/library/natixis-support:1.0      (ID d5ae952a8b50, 143MB)
+#11 naming to docker.io/library/natixis-support:1.0 0.1s done
+$ docker image ls natixis-support:1.0
+natixis-support:1.0   d5ae952a8b50   143MB
 $ docker run -d --name tp-api -p 8180:8000 natixis-support:1.0
-$ docker ps
+$ docker ps          (colunas resumidas)
 IMAGE                 STATUS        PORTS                     NAMES
 natixis-support:1.0   Up 7 seconds  0.0.0.0:8180->8000/tcp    tp-api
 $ curl -i http://<IP_HOST>:8180/health
@@ -59,10 +61,16 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 INFO:     <IP_HOST>:37610 - "GET /health HTTP/1.1" 200 OK
 $ docker exec tp-api id
 uid=10001(appuser) gid=10001(appuser) groups=10001(appuser)
-$ docker exec tp-api ls -ld /data      -> drwxr-xr-x appuser appuser /data (escrita OK)
-$ docker exec tp-api ls /app           -> app.py requirements.txt (sem .git, testes, pdf, caches)
+$ docker exec tp-api ls -ld /data
+drwxr-xr-x 2 appuser appuser 4096 Nov 24 09:48 /data
+$ docker exec tp-api ls /app
+app.py
+requirements.txt
 $ docker rm -f tp-api
 ```
+
+O `/data` pertence ao `appuser` (foi testada a escrita com `touch`) e em `/app` so existem `app.py` e
+`requirements.txt`, sem `.git`, testes nem caches.
 
 Conclusao: a imagem `natixis-support:1.0` constroi com dependencias em camada propria (cache) e corre como
 `appuser` (uid 10001, nao root) com escrita em `/data`. O `/health` responde HTTP 200 com `status="ok"` e o
@@ -73,16 +81,32 @@ Resultado de docker compose config; health; teste checker -> api; contador antes
 
 Porta alternativa: host 8180 -> container 8000 (mesma razao do E02).
 
+Excerto do `compose.yaml`:
+```yaml
+  api:
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+  checker:
+    depends_on:
+      api:
+        condition: service_healthy
+```
+
 ```
 $ docker compose config --quiet
 (sem output, exit 0 -> configuracao valida)
 
 $ docker compose up -d --build
-$ docker compose ps
+$ docker compose ps          (colunas resumidas)
 NAME                       IMAGE                   STATUS                   PORTS
 natixis-integrador-api-1   natixis-support:local   Up 7 seconds (healthy)   0.0.0.0:8180->8000/tcp
 
 $ docker compose --profile diagnostico run --rm checker -fsS http://api:8000/health
+ Container natixis-integrador-api-1  Running
 {"status":"ok","service":"support-api-integrador","version":"1.0"}
 
 $ curl http://<IP_HOST>:8180/visits              -> {"visits":0}
@@ -90,7 +114,7 @@ $ curl -X POST http://<IP_HOST>:8180/visits      -> {"visits":1}
 $ curl http://<IP_HOST>:8180/visits              -> {"visits":1}
 
 $ docker compose up -d --force-recreate            (container ceb30ea6d10d -> 8d96708cf382)
-$ docker compose ps
+$ docker compose ps          (colunas resumidas)
 natixis-integrador-api-1   natixis-support:local   Up 6 seconds (healthy)   0.0.0.0:8180->8000/tcp
 $ curl http://<IP_HOST>:8180/visits              -> {"visits":1}
 ```
@@ -112,7 +136,7 @@ $ docker compose -f compose.yaml -f incidente.yaml up -d --force-recreate
  Container natixis-integrador-api-1  Recreated
  Container natixis-integrador-api-1  Started
 
-$ docker compose -f compose.yaml -f incidente.yaml ps
+$ docker compose -f compose.yaml -f incidente.yaml ps          (colunas resumidas)
 NAME                       IMAGE                   STATUS                      PORTS
 natixis-integrador-api-1   natixis-support:local   Up 35 seconds (unhealthy)   0.0.0.0:8180->8000/tcp
 ```
@@ -140,7 +164,8 @@ nos logs). O mapeamento de portas (`8180 -> 8000`) e o healthcheck (`127.0.0.1:8
 
 **4. Correcao**
 Regressar a configuracao base (sem o overlay `incidente.yaml`, que fica no repositorio sem alteracoes) e recriar o
-servico, sem remover o volume:
+servico, sem remover o volume. So o `api` e recriado, porque o `checker` pertence ao profile `diagnostico` e nao
+esta ativo:
 ```
 $ docker compose up -d --force-recreate
  Container natixis-integrador-api-1  Recreated
@@ -149,7 +174,7 @@ $ docker compose up -d --force-recreate
 
 **5. Validacao**
 ```
-$ docker compose ps
+$ docker compose ps          (colunas resumidas)
 NAME                       IMAGE                   STATUS                   PORTS
 natixis-integrador-api-1   natixis-support:local   Up 7 seconds (healthy)   0.0.0.0:8180->8000/tcp
 
@@ -165,7 +190,9 @@ incidente (`1`), porque o volume nomeado `app-data` nunca foi removido.
 ## E05 - Git (3 valores)
 Branch, hashes de commits, merge e tag v1.0.0:
 
-Repositorio ja inicializado (branch `main`), por isso nao foi necessario `git init`.
+Repositorio ja inicializado (branch `main`), por isso nao foi necessario `git init`. A aplicacao funcional ja
+estava versionada nos commits dos exercicios anteriores, por isso o commit `feat: ambiente integrador funcional`
+so acrescenta ao relatorio a verificacao do `.gitignore` e marca o estado base antes da branch de correcao.
 
 ```
 $ git check-ignore -v .venv/x .env __pycache__/x.pyc .pytest_cache/x teste.log
@@ -277,11 +304,66 @@ Finished: SUCCESS
 Conclusao: o Jenkins obteve o `Jenkinsfile` e o codigo a partir do Git (commit `5815e3e`), executou os testes num
 ambiente virtual isolado no agente `ci-python-docker` e construiu a imagem com uma tag unica por execucao
 (`ci-${BUILD_NUMBER}`), confirmada com `docker image inspect`. As tres etapas terminaram em SUCCESS.
-(O build #1 foi uma execucao de validacao do ambiente sobre uma revisao anterior do historico.)
+O build #1 correu sobre um commit entretanto reorganizado no historico (squash dos commits do Exercicio 05); o #2
+corresponde ao commit atual.
 
 ## E07 - Jenkins FAILURE e recuperacao (2 valores)
 Build FAILURE, etapa que falhou e excerto relevante do log; build SUCCESS apos correcao:
 
+**Falha controlada:** em `tests/test_app.py` a assercao passou temporariamente a esperar `status == "offline"`
+(a API continua a devolver `"ok"`). Commit `d1d9c2d`, push e novo build.
+
+| Item | Valor |
+|---|---|
+| Build | **#3**, `http://<IP_HOST>:8190/job/tp-devops-integrador/3/` |
+| Commit | `d1d9c2d` (assercao `"offline"`) |
+| Resultado | **FAILURE** |
+| Etapas | Checkout SUCCESS, **Tests FAILED**, Docker Build nao executado |
+
+```
+Checking out Revision d1d9c2dda6a42757ab1b3e89f026b978d4460226 (refs/remotes/origin/main)
++ .venv/bin/python -m pytest -q
+F.                                                                       [100%]
+>       assert response.json()["status"] == "offline"
+E       AssertionError: assert 'ok' == 'offline'
+tests/test_app.py:9: AssertionError
+FAILED tests/test_app.py::test_health - AssertionError: assert 'ok' == 'offline'
+1 failed, 1 passed, 1 warning in 0.42s
+[Pipeline] { (Docker Build)
+Stage "Docker Build" skipped due to earlier failure(s)
+ERROR: script returned exit code 1
+Finished: FAILURE
+```
+Interpretacao: o `pytest` terminou com exit code 1 porque `test_health` esperava `"offline"` e a API devolveu
+`"ok"`. O passo `sh` falhou, a etapa Tests ficou FAILED e o Jenkins saltou o Docker Build. Nao foi construida
+nenhuma imagem `natixis-support:ci-3`: uma alteracao que parte os testes nunca chega a gerar artefacto.
+
+**Recuperacao:** repor a assercao `status == "ok"`, commit `8ab977a`, push e novo build.
+
+| Item | Valor |
+|---|---|
+| Build | **#4**, `http://<IP_HOST>:8190/job/tp-devops-integrador/4/` |
+| Commit | `8ab977a` (assercao reposta) |
+| Resultado | **SUCCESS** |
+| Etapas | Checkout SUCCESS, Tests SUCCESS, Docker Build SUCCESS |
+| Imagem | `natixis-support:ci-4` (`sha256:c7a7192ce697acea6eecfcd2eead12c4d1ddf38665d425dbb89081f3dd70434a`) |
+
+```
+Checking out Revision 8ab977a11296200a1f32e7790e64b4048420091a (refs/remotes/origin/main)
+2 passed, 1 warning in 0.34s
++ docker build -t natixis-support:ci-4 .
+#11 naming to docker.io/library/natixis-support:ci-4 0.2s done
++ docker image inspect natixis-support:ci-4 --format {{.Id}}
+sha256:c7a7192ce697acea6eecfcd2eead12c4d1ddf38665d425dbb89081f3dd70434a
+Finished: SUCCESS
+```
+
+Historico de builds do job (nao eliminado): #1 SUCCESS, #2 SUCCESS, **#3 FAILURE**, **#4 SUCCESS**.
+Os commits da falha (`d1d9c2d`) e da correcao (`8ab977a`) ficam no historico Git.
+
+Conclusao: a pipeline bloqueou a alteracao defeituosa na etapa Tests, antes da construcao da imagem. Repor a
+assercao correta devolveu o SUCCESS nas tres etapas, e cada build fica associado ao commit exato que testou.
+
 ## Verificacao final
-[ ] Dockerfile [ ] compose.yaml [ ] app.py [ ] tests/ [ ] Jenkinsfile
-[ ] Historico Git [ ] Tag v1.0.0 [ ] Evidencias E01-E07
+[x] Dockerfile [x] compose.yaml [x] app.py [x] tests/ [x] Jenkinsfile
+[x] Historico Git [x] Tag v1.0.0 [x] Evidencias E01-E07
