@@ -71,6 +71,36 @@ Conclusao: a imagem `natixis-support:1.0` constroi com dependencias em camada pr
 ## E03 - Compose, DNS, healthcheck e volume (4 valores)
 Resultado de docker compose config; health; teste checker -> api; contador antes/depois da recriacao:
 
+Porta alternativa: host 8180 -> container 8000 (mesma razao do E02).
+
+```
+$ docker compose config --quiet
+(sem output, exit 0 -> configuracao valida)
+
+$ docker compose up -d --build
+$ docker compose ps
+NAME                       IMAGE                   STATUS                   PORTS
+natixis-integrador-api-1   natixis-support:local   Up 7 seconds (healthy)   0.0.0.0:8180->8000/tcp
+
+$ docker compose --profile diagnostico run --rm checker -fsS http://api:8000/health
+{"status":"ok","service":"support-api-integrador","version":"1.0"}
+
+$ curl http://<IP_HOST>:8180/visits              -> {"visits":0}
+$ curl -X POST http://<IP_HOST>:8180/visits      -> {"visits":1}
+$ curl http://<IP_HOST>:8180/visits              -> {"visits":1}
+
+$ docker compose up -d --force-recreate            (container ceb30ea6d10d -> 8d96708cf382)
+$ docker compose ps
+natixis-integrador-api-1   natixis-support:local   Up 6 seconds (healthy)   0.0.0.0:8180->8000/tcp
+$ curl http://<IP_HOST>:8180/visits              -> {"visits":1}
+```
+
+Conclusao: o healthcheck usa Python/urllib contra `http://127.0.0.1:8000/health` (sem instalar curl) e o
+servico fica `healthy`. O `checker` so arranca depois de `api` estar `service_healthy` e resolve o nome
+`api` pelo DNS interno da rede do Compose. **O contador nao se perdeu porque `visitas.txt` esta no volume
+nomeado `app-data` (montado em `/data`), que existe independentemente do container e e reutilizado
+quando este e recriado.**
+
 ## E04 - Incidente Docker (3 valores)
 Sintoma, comandos de investigacao, causa-raiz, alteracao realizada, prova da recuperacao e contador preservado:
 
