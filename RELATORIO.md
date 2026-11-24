@@ -165,6 +165,17 @@ incidente (`1`), porque o volume nomeado `app-data` nunca foi removido.
 ## E05 - Git (3 valores)
 Branch, hashes de commits, merge e tag v1.0.0:
 
+Repositorio ja inicializado (branch `main`), por isso nao foi necessario `git init`.
+
+```
+$ git check-ignore -v .venv/x .env __pycache__/x.pyc .pytest_cache/x teste.log
+.gitignore:1:.venv/          .venv/x
+.gitignore:5:.env            .env
+.gitignore:2:__pycache__/    __pycache__/x.pyc
+.gitignore:3:.pytest_cache/  .pytest_cache/x
+.gitignore:6:*.log           teste.log
+```
+
 ## E06 - Jenkins SUCCESS (4 valores)
 URL/numero do build, etapas e identificador da imagem construida:
 
